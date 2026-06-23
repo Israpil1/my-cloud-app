@@ -1,0 +1,44 @@
+name: Deploy to Yandex Cloud
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY_ID: crp61jjd9cdnu912a2cg
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          IMAGE_TAG=cr.yandex/${{ env.REGISTRY_ID }}/my-app:${{ github.sha }}
+          docker build -t $IMAGE_TAG .
+          docker save $IMAGE_TAG -o image.tar
+
+      - name: Copy image to VM via SCP
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.VM_PUBLIC_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "image.tar"
+          target: "/home/ubuntu/"
+
+      - name: Deploy on VM
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_PUBLIC_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            IMAGE_TAG=cr.yandex/${{ env.REGISTRY_ID }}/my-app:${{ github.sha }}
+            docker load -i /home/ubuntu/image.tar
+            docker stop my-running-app || true
+            docker rm my-running-app || true
+            docker run -d --name my-running-app -p 80:80 $IMAGE_TAG
